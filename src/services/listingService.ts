@@ -1,7 +1,7 @@
 import { analyzeProduct } from "../ai/analyzeProduct";
 import { generateListing } from "../ai/generateListing";
 import type { ListingContent, ProductAnalysis } from "../ai/schemas";
-import { mercariSearchProvider } from "../marketplace/mercariSearchProvider";
+import { yahooAuctionSearchProvider } from "../marketplace/yahooAuctionSearchProvider";
 import type { MarketplaceItem } from "../marketplace/types";
 import type { ListingSession } from "../session/sessionManager";
 import { removeSession, setStatus } from "../session/sessionManager";
@@ -31,13 +31,13 @@ function buildSearchQuery(analysis: ProductAnalysis): string | null {
 function buildPriceDisclaimer(soldComps: MarketplaceItem[]): string[] {
   if (soldComps.length > 0) {
     return [
-      `※メルカリでの類似商品の売却実績(${soldComps.length}件)を参考に、AIが算出した価格です。`,
-      "実際の相場・需要により変動する可能性があります。",
+      `※ヤフオク!での類似商品の落札実績(${soldComps.length}件)を参考に、AIが算出した価格です。`,
+      "メルカリでの実際の相場とは異なる場合があります。",
     ];
   }
   return [
-    "※類似商品の売却実績が見つからなかったため、商品情報・状態などからAIが推定した参考価格です。",
-    "実際のメルカリの相場データを参照したものではありません。",
+    "※類似商品の落札実績が見つからなかったため、商品情報・状態などからAIが推定した参考価格です。",
+    "実際のメルカリ・ヤフオクの相場データを参照したものではありません。",
   ];
 }
 
@@ -85,7 +85,7 @@ export function formatResultMessage(
     const examples = soldComps
       .slice(0, MAX_COMP_EXAMPLES)
       .map((c) => `・${c.title} / ${c.price.toLocaleString("ja-JP")}円`);
-    sections.push("", "【参考にした売却実績(例)】", examples.join("\n"));
+    sections.push("", "【参考にした落札実績(例)】", examples.join("\n"));
   }
 
   if (caveats.length > 0) {
@@ -112,7 +112,7 @@ export async function runAnalysis(session: ListingSession): Promise<string> {
 
     const query = buildSearchQuery(analysis);
     if (query) {
-      comps = await mercariSearchProvider.search(query);
+      comps = await yahooAuctionSearchProvider.search(query);
     }
 
     listing = await generateListing(analysis, session.notes, comps);
