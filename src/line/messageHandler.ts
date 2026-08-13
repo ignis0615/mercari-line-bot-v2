@@ -30,6 +30,27 @@ const START_GUIDE = [
 const NO_SESSION_TEXT = "先に『出品開始』と送ってください。";
 const ANALYSIS_ERROR_TEXT = "商品の分析中にエラーが発生しました。もう一度お試しください。";
 
+const IMAGE_NOTIFY_DEBOUNCE_MS = 1500;
+const pendingImageNotificationTimers = new Map<string, NodeJS.Timeout>();
+
+/** 連続して届く画像受信通知を1回にまとめる。無音区間が空いた時点の最新枚数だけをpushする。 */
+function scheduleImageReceivedNotification(userId: string, count: number): void {
+  clearPendingImageNotification(userId);
+  const timer = setTimeout(() => {
+    pendingImageNotificationTimers.delete(userId);
+    void pushText(userId, `画像を受け取りました。（現在${count}/${MAX_IMAGES_PER_LISTING}枚）`);
+  }, IMAGE_NOTIFY_DEBOUNCE_MS);
+  pendingImageNotificationTimers.set(userId, timer);
+}
+
+function clearPendingImageNotification(userId: string): void {
+  const timer = pendingImageNotificationTimers.get(userId);
+  if (timer) {
+    clearTimeout(timer);
+    pendingImageNotificationTimers.delete(userId);
+  }
+}
+
 export async function handleEvent(event: webhook.Event): Promise<void> {
   if (event.type !== "message") return;
 
@@ -67,6 +88,7 @@ async function handleText(userId: string, replyToken: string | undefined, text: 
 }
 
 async function handleStartCommand(userId: string, replyToken: string | undefined): Promise<void> {
+  clearPendingImageNotification(userId);
   await sessionManager.startSession(userId);
   logger.info("出品セッションを開始しました", { userId });
   if (replyToken) await replyText(replyToken, START_GUIDE);
@@ -83,6 +105,7 @@ async function handleNote(userId: string, replyToken: string | undefined, text: 
 }
 
 async function handleCancelCommand(userId: string, replyToken: string | undefined): Promise<void> {
+  clearPendingImageNotification(userId);
   const session = sessionManager.removeSession(userId);
   if (session) {
     await deleteFiles(session.images);
@@ -118,6 +141,7 @@ async function handleAnalyzeCommand(userId: string, replyToken: string | undefin
     return;
   }
 
+  clearPendingImageNotification(userId);
   if (replyToken) {
     await replyText(replyToken, "分析を開始します。少々お待ちください。");
   }
@@ -175,7 +199,7 @@ async function handleImage(userId: string, replyToken: string | undefined, messa
   }
 
   logger.info("画像を受信しました", { userId, count: result.count });
-  if (env.SEND_IMAGE_RECEIVED_MESSAGE && replyToken) {
-    await replyText(replyToken, `画像を受け取りました。（${result.count}/${MAX_IMAGES_PER_LISTING}枚）`);
+  if (env.SEND_IMAGE_RECEIVED_MESSAGE) {
+    scheduleImageReceivedNotification(userId, result.count);
   }
 }
