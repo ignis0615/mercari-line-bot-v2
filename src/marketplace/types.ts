@@ -1,6 +1,6 @@
 /**
- * Ver.2以降で実装予定のメルカリ類似商品検索インターフェース。
- * Ver.1では呼び出さない(実装もしない)。
+ * メルカリ類似商品検索の抽象インターフェース。
+ * 実装は mercariSearchProvider.ts を参照。
  */
 export interface MarketplaceItem {
   platform: "mercari";

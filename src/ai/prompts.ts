@@ -1,3 +1,5 @@
+import type { MarketplaceItem } from "../marketplace/types";
+
 export function buildAnalysisSystemPrompt(): string {
   return [
     "あなたはフリマアプリ「メルカリ」への出品を支援する商品鑑定アシスタントです。",
@@ -39,16 +41,22 @@ export function buildAnalysisUserText(notes: string[]): string {
 export function buildListingSystemPrompt(): string {
   return [
     "あなたはフリマアプリ「メルカリ」への出品文章の作成を支援するアシスタントです。",
-    "商品の構造化情報(JSON)とユーザーの補足メモをもとに、出品用のタイトル・商品説明文・参考価格をJSONで出力してください。",
+    "商品の構造化情報(JSON)・ユーザーの補足メモ・類似商品の実売データをもとに、",
+    "出品用のタイトル・商品説明文・参考価格をJSONで出力してください。",
     "",
     "厳守事項:",
     "- タイトルは自然な日本語で、ブランド・商品名・型番・色・状態など確認できている情報を優先しつつ、詰め込みすぎないでください。",
     "- 「美品」「新品同様」など、画像から確実に判断できない状態表現を勝手に使わないでください。",
     "- 商品説明文には、ブランド・商品名・型番・色・状態・傷や汚れ・付属品・欠品・ユーザーの補足メモを可能な範囲で含めてください。",
     "- 購入時期・使用期間・動作確認結果・購入価格・使用回数は、ユーザーの補足メモに明記されていない限り一切記載しないでください(捏造禁止)。",
-    "- 価格は必ず「AIによる参考価格」として扱ってください。実際のメルカリの相場データは一切参照していません。",
+    "- 価格はあくまで「AIによる参考価格」です。",
+    "- 「類似商品のメルカリ実売データ」が提供されている場合は、それらの実売価格を主な根拠にして3種類の価格を決めてください。",
+    "  対象商品の状態(傷・付属品の有無・欠品など)が実売データの商品と異なる場合は、その差を考慮して適宜補正してください。",
+    "- 実売データが提供されていない、または関連性が低い場合は、商品情報・カテゴリ・状態のみから推定してください。",
     "- 価格は日本円の整数で、quick_sale_price <= recommended_price <= high_price となるようにしてください。",
-    "- price_note には、現在は実際のメルカリ相場データを参照していない旨を必ず記載してください。",
+    "- price_confidence は、実売データを十分な根拠として使えた場合は \"medium\" か \"high\"、",
+    "  実売データがない/乏しい場合は \"low\" を基本にしてください。",
+    "- price_note には、実売データを根拠にしたか商品情報のみからの推定かを一文で簡潔に記載してください。",
     "- 出力は必ず次のJSON形式のみとし、それ以外の文章を含めないでください。",
     "",
     "JSON形式:",
@@ -64,14 +72,23 @@ export function buildListingSystemPrompt(): string {
   ].join("\n");
 }
 
-export function buildListingUserText(analysisJson: string, notes: string[]): string {
+export function buildListingUserText(analysisJson: string, notes: string[], comps: MarketplaceItem[]): string {
   const notesText = notes.length > 0 ? notes.join("\n") : "(補足メモなし)";
+  const compsText =
+    comps.length > 0
+      ? comps
+          .map((c) => `- ${c.title} / ${c.price.toLocaleString("ja-JP")}円 / ${c.sold ? "売却済み" : "販売中"}`)
+          .join("\n")
+      : "(類似商品の実売データなし)";
   return [
     "【商品の構造化情報】",
     analysisJson,
     "",
     "【ユーザーの補足メモ】",
     notesText,
+    "",
+    "【類似商品のメルカリ実売データ(参考)】",
+    compsText,
     "",
     "上記の情報のみをもとに、メルカリ出品用のタイトル・商品説明文・参考価格をJSON形式で出力してください。",
   ].join("\n");
