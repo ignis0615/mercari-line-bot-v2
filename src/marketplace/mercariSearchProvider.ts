@@ -12,7 +12,7 @@ import type { MarketplaceItem, MarketplaceSearchProvider } from "./types";
  * 個人利用・低頻度の範囲に留めてください。ページ構造の変更で動かなくなる可能性もあります。
  */
 
-const SEARCH_TIMEOUT_MS = 15000;
+const SEARCH_TIMEOUT_MS = 30000;
 const MAX_SOLD_ITEMS = 15;
 const MAX_ACTIVE_ITEMS = 5;
 const USER_AGENT =
@@ -22,7 +22,10 @@ let browserPromise: Promise<Browser> | null = null;
 
 function getBrowser(): Promise<Browser> {
   if (!browserPromise) {
-    browserPromise = chromium.launch({ headless: true });
+    browserPromise = chromium.launch({
+      headless: true,
+      args: ["--disable-blink-features=AutomationControlled"],
+    });
   }
   return browserPromise;
 }
@@ -36,14 +39,18 @@ interface RawItem {
 
 async function scrapeStatus(query: string, status: "sold_out" | "on_sale"): Promise<RawItem[]> {
   const browser = await getBrowser();
-  const context = await browser.newContext({ userAgent: USER_AGENT, locale: "ja-JP" });
+  const context = await browser.newContext({
+    userAgent: USER_AGENT,
+    locale: "ja-JP",
+    viewport: { width: 1280, height: 800 },
+  });
   try {
     const page = await context.newPage();
     const url = `https://jp.mercari.com/search?keyword=${encodeURIComponent(query)}&status=${status}`;
-    await page.goto(url, { waitUntil: "domcontentloaded", timeout: SEARCH_TIMEOUT_MS });
+    const response = await page.goto(url, { waitUntil: "domcontentloaded", timeout: SEARCH_TIMEOUT_MS });
     await page.waitForSelector('a[href^="/item/"]', { timeout: SEARCH_TIMEOUT_MS }).catch(() => null);
 
-    return await page.evaluate(() => {
+    const items = await page.evaluate(() => {
       const links = Array.from(document.querySelectorAll<HTMLAnchorElement>('a[href^="/item/"]'));
       const results: { id: string; title: string; price: number; sold: boolean }[] = [];
       for (const link of links) {
@@ -63,6 +70,23 @@ async function scrapeStatus(query: string, status: "sold_out" | "on_sale"): Prom
       }
       return results;
     });
+
+    if (items.length === 0) {
+      // 原因切り分け用の診断ログ(通常時は出さない)。
+      const title = await page.title().catch(() => "");
+      const bodySnippet = await page
+        .evaluate(() => document.body.innerText.replace(/\s+/g, " ").slice(0, 200))
+        .catch(() => "");
+      logger.warn("メルカリ検索結果が0件でした(診断情報)", {
+        query,
+        status,
+        httpStatus: response?.status(),
+        pageTitle: title,
+        bodySnippet,
+      });
+    }
+
+    return items;
   } finally {
     await context.close();
   }
