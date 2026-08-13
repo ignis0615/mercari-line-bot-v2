@@ -3,9 +3,16 @@ import { promises as fs } from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import type { Readable } from "node:stream";
+import sharp from "sharp";
 import { logger } from "./logger";
 
 const BASE_DIR = path.join(os.tmpdir(), "mercari-line-bot");
+
+// OpenAIへの送信ペイロックを抑えるため、保存時点で長辺を縮小しJPEG再圧縮する。
+// スマホ写真を原寸(数MB×複数枚)のまま送ると、リクエストが肥大化して
+// "Premature close" のような接続断が起きることがあったため導入。
+const MAX_IMAGE_DIMENSION = 1600;
+const JPEG_QUALITY = 82;
 
 function userDir(userId: string): string {
   return path.join(BASE_DIR, userId);
@@ -20,7 +27,20 @@ export async function saveImageStream(userId: string, stream: Readable): Promise
   for await (const chunk of stream) {
     chunks.push(chunk as Buffer);
   }
-  await fs.writeFile(filePath, Buffer.concat(chunks));
+  const original = Buffer.concat(chunks);
+
+  const resized = await sharp(original)
+    .rotate() // Exifの回転情報を反映してから正規化する
+    .resize({
+      width: MAX_IMAGE_DIMENSION,
+      height: MAX_IMAGE_DIMENSION,
+      fit: "inside",
+      withoutEnlargement: true,
+    })
+    .jpeg({ quality: JPEG_QUALITY })
+    .toBuffer();
+
+  await fs.writeFile(filePath, resized);
   return filePath;
 }
 
